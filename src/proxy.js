@@ -8,7 +8,7 @@ export default {
     }
 
     try {
-      // Required headers to bypass YouTube's 403 protection
+      // YouTube requires these headers to prevent 403 Forbidden errors
       const customHeaders = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
         "Origin": "https://www.youtube.com",
@@ -17,34 +17,31 @@ export default {
         "Accept-Language": "en-US,en;q=0.9",
       };
 
-      // Fetch the target URL (either the m3u8 manifest or a video segment)
       const resp = await fetch(targetUrl, { headers: customHeaders });
 
       if (!resp.ok) {
-        const errorText = await resp.text();
         return new Response(
-          `Proxy Error: ${resp.status} ${resp.statusText}\n\nDetails: ${errorText.substring(0, 200)}`,
+          `Proxy Error: ${resp.status} ${resp.statusText}`,
           { status: resp.status }
         );
       }
 
-      // Check if it's an M3U8 playlist to rewrite relative URLs
       const contentType = resp.headers.get("Content-Type") || "";
+      
+      // 1. If the URL is an M3U8 playlist, rewrite relative paths to absolute paths
       if (contentType.includes("mpegurl") || targetUrl.includes(".m3u8")) {
         let text = await resp.text();
-        const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
-
-        // Rewrite relative segment URLs to absolute URLs
-        const rewritten = text
-          .split("\n")
-          .map((line) => {
-            line = line.trim();
-            if (!line || line.startsWith("#")) return line;
-            if (line.startsWith("http://") || line.startsWith("https://")) return line;
-            // Return absolute URL
-            return encodeURI(new URL(line, baseUrl).href);
-          })
-          .join("\n");
+        const baseUrl = new URL(targetUrl);
+        
+        const rewritten = text.split("\n").map((line) => {
+          line = line.trim();
+          if (!line || line.startsWith("#")) return line;
+          // Convert relative URLs to absolute URLs
+          if (!line.startsWith("http://") && !line.startsWith("https://")) {
+            return new URL(line, baseUrl).href;
+          }
+          return line;
+        }).join("\n");
 
         return new Response(rewritten, {
           status: 200,
@@ -56,7 +53,7 @@ export default {
         });
       }
 
-      // For video segments (.ts files), stream them directly
+      // 2. If the URL is a video segment (.ts), stream it directly
       return new Response(resp.body, {
         status: resp.status,
         headers: {
