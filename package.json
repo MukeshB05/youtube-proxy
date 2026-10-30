@@ -4,9 +4,7 @@
   "description": "Cloudflare Worker proxy for YouTube HLS streams",
   "main": "src/proxy.js",
   "scripts": {
-    "deploy:extractor": "wrangler deploy",
-    "deploy:proxy": "wrangler deploy --config wrangler.proxy.toml",
-    "deploy": "npm run deploy:extractor && npm run deploy:proxy"
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "^3.0.0"
