@@ -5,12 +5,15 @@
 //   /video/VIDEO_ID.m3u8      -> a specific live video
 //   /?url=<encoded url>       -> generic proxy (used internally for playlists and segments)
 
+const VERSION = "2026-10-31-c";
+
 const ALLOWED_HOSTS = ["googlevideo.com", "youtube.com", "ytimg.com", "googleusercontent.com"];
 
 const DESKTOP_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 const CORS = {
+  "X-Worker-Version": VERSION,
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
   "Access-Control-Allow-Headers": "Range, Content-Type, Origin, Accept",
@@ -88,6 +91,14 @@ function rewritePlaylist(text, baseUrl, proxyOrigin) {
 
 // ---- Finding the live manifest -------------------------------------------------
 
+function between(text, startMarker, endMarker) {
+  const i = text.indexOf(startMarker);
+  if (i === -1) return null;
+  const from = i + startMarker.length;
+  const j = text.indexOf(endMarker, from);
+  return j === -1 ? null : text.slice(from, j);
+}
+
 async function pageLookup(pageUrl) {
   const res = await fetch(pageUrl, {
     headers: {
@@ -100,20 +111,21 @@ async function pageLookup(pageUrl) {
   const html = await res.text();
 
   let manifest = null;
-  const m = html.match(/"hlsManifestUrl":"([^"]+)"/);
-  if (m) {
+  const raw = between(html, '"hlsManifestUrl":"', '"');
+  if (raw) {
     try {
-      manifest = JSON.parse(`"${m[1]}"`);
+      manifest = JSON.parse(`"${raw}"`);
     } catch {
-      manifest = m[1].replace(/\\u0026/g, "&");
+      manifest = raw.replace(/\\u0026/g, "&");
     }
   }
 
-  const idMatch =
-    html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/) ||
-    html.match(/"videoDetails":\{"videoId":"([\w-]{11})"/);
+  let videoId =
+    between(html, 'rel="canonical" href="https://www.youtube.com/watch?v=', '"') ||
+    between(html, '"videoDetails":{"videoId":"', '"');
+  if (videoId && !/^[\w-]{11}$/.test(videoId)) videoId = null;
 
-  return { manifest, videoId: idMatch ? idMatch[1] : null, status: res.status };
+  return { manifest, videoId, status: res.status };
 }
 
 async function playerLookup(videoId) {
@@ -177,7 +189,7 @@ async function resolveManifest(spec) {
   if (r.url) return r.url;
   if (r.notLive) {
     throw new Error(
-      `This channel is not live right now. The latest video found (${videoId}${r.title ? `: "${r.title}"` : ""}) is a regular video, not a live stream.\nTry again when the channel is live, or test with a channel that shows a LIVE badge on YouTube.`
+      `This channel is not live right now. The latest video found (${videoId}${r.title ? `: "${r.title}"` : ""}) is not a live stream.\nTry again when the channel is live, or test with a channel that shows a LIVE badge on YouTube.`
     );
   }
   throw new Error(
@@ -288,6 +300,10 @@ export default {
 
     const url = new URL(request.url);
     const origin = url.origin;
+
+    if (url.pathname === "/version") {
+      return new Response(`youtube-proxy ${VERSION}`, { headers: { ...CORS, "Content-Type": "text/plain" } });
+    }
 
     try {
       let m;
