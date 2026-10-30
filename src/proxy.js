@@ -36,10 +36,13 @@ const CLIENTS = [
     },
   },
   {
-    name: "TV_EMBEDDED",
+    name: "ANDROID_VR",
     userAgent:
-      "Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
-    context: { clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", clientVersion: "2.0", hl: "en", gl: "US" },
+      "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+    context: {
+      clientName: "ANDROID_VR", clientVersion: "1.60.19", deviceMake: "Oculus", deviceModel: "Quest 3",
+      androidSdkVersion: 32, osName: "Android", osVersion: "12L", hl: "en", gl: "US",
+    },
   },
 ];
 
@@ -115,6 +118,8 @@ async function pageLookup(pageUrl) {
 
 async function playerLookup(videoId) {
   const problems = [];
+  let notLive = false;
+  let title = "";
   for (const client of CLIENTS) {
     try {
       const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
@@ -138,14 +143,20 @@ async function playerLookup(videoId) {
       }
       const data = await res.json();
       const url = data.streamingData && data.streamingData.hlsManifestUrl;
-      if (url) return { url, problems };
+      if (url) return { url, problems, notLive: false, title };
       const ps = data.playabilityStatus || {};
-      problems.push(`${client.name}: ${ps.status || "no status"}${ps.reason ? " - " + ps.reason : ""}`);
+      const vd = data.videoDetails || {};
+      if (ps.status === "OK" && vd.isLive === false) notLive = true;
+      if (vd.title) title = vd.title;
+      problems.push(
+        `${client.name}: ${ps.status || "no status"}${ps.reason ? " - " + ps.reason : ""}` +
+          (ps.status === "OK" ? ` (isLive=${vd.isLive}, isLiveContent=${vd.isLiveContent})` : "")
+      );
     } catch (e) {
       problems.push(`${client.name}: ${e.message}`);
     }
   }
-  return { url: null, problems };
+  return { url: null, problems, notLive, title };
 }
 
 async function resolveManifest(spec) {
@@ -164,6 +175,11 @@ async function resolveManifest(spec) {
 
   const r = await playerLookup(videoId);
   if (r.url) return r.url;
+  if (r.notLive) {
+    throw new Error(
+      `This channel is not live right now. The latest video found (${videoId}${r.title ? `: "${r.title}"` : ""}) is a regular video, not a live stream.\nTry again when the channel is live, or test with a channel that shows a LIVE badge on YouTube.`
+    );
+  }
   throw new Error(
     `No HLS manifest for video ${videoId}. It may not be live, or YouTube is blocking this request.\n` +
       r.problems.join("\n")
