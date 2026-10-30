@@ -1,0 +1,5 @@
+"scripts": {
+  "deploy:extractor": "wrangler deploy",
+  "deploy:proxy": "wrangler deploy --config wrangler.proxy.toml",
+  "deploy": "npm run deploy:extractor && npm run deploy:proxy"
+}
